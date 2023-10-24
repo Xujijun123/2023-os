@@ -329,6 +329,9 @@ volatile unsigned int pgfault_num=0;
  */
 int
 do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
+    extern list_entry_t *curr_ptr;
+    cprintf("curr_ptr %p\n", (void*)curr_ptr);
+    
     int ret = -E_INVAL;
     //try to find a vma which include addr
     struct vma_struct *vma = find_vma(mm, addr);
@@ -406,6 +409,13 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
             //map of phy addr <--->
             //logical addr
             //(3) make the page swappable.
+            if(swap_in(mm,addr,&page)!=0)
+            {
+                cprintf("swap_in in do_pgfault failed\n");
+                goto failed;
+            }
+            page_insert(mm->pgdir,page,addr,perm);
+            swap_map_swappable(mm,addr,page,1);
             page->pra_vaddr = addr;
         } else {
             cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);
