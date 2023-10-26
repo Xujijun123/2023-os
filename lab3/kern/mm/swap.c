@@ -28,8 +28,7 @@ unsigned int swap_in_seq_no[MAX_SEQ_NO],swap_out_seq_no[MAX_SEQ_NO];
 
 static void check_swap(void);
 
-int
-swap_init(void)
+int swap_init(void)
 {
      swapfs_init();
 
