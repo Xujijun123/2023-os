@@ -209,7 +209,7 @@ int do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
 
       ![](./make_grade.jpg)
 
-      ![](./make_qemu.jpg)
+      ![](./make-qemu.jpg)
 
 3. 比较Clock页替换算法和FIFO算法的不同
 
