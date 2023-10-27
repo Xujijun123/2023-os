@@ -99,30 +99,58 @@
 
 1. 代码（`do_pgfault（mm/vmm.c）`）
 
-```c
-int do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
-   …………
-    } else {
-        /*LAB3 EXERCISE 3: YOUR CODE*/
-        if (swap_init_ok) {
-            struct Page *page = NULL;
-           
-            if(swap_in(mm,addr,&page)!=0)//将磁盘上的页面内容加载到内存中，存储在page里，若返回值不为0，意味着换入失败
-            {
-                cprintf("swap_in in do_pgfault failed\n");
-                goto failed;
-            }
-            page_insert(mm->pgdir,page,addr,perm);//将刚刚加载的物理页 page 插入到当前进程的页表 pgdir 中，与虚拟地址 addr 建立映射关系
-            swap_map_swappable(mm,addr,page,1);//将页面标记为可交换
-            page->pra_vaddr = addr;//将页面结构 page 中的 pra_vaddr 字段设置为虚拟地址 addr，以表示这个页面是由访问异常加载的
-        } else {
-            cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);
-            goto failed;
-        }
-   }
-  …………
-}
-```
+   ```c
+   int do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
+      …………
+       } else {
+           /*LAB3 EXERCISE 3: YOUR CODE*/
+           if (swap_init_ok) {
+               struct Page *page = NULL;
+              
+               if(swap_in(mm,addr,&page)!=0)//将磁盘上的页面内容加载到内存中，存储在page里，若返回值不为0，意味着换入失败
+               {
+                   cprintf("swap_in in do_pgfault failed\n");
+                   goto failed;
+               }
+               page_insert(mm->pgdir,page,addr,perm);//将刚刚加载的物理页 page 插入到当前进程的页表 pgdir 中，与虚拟地址 addr 建立映射关系
+               swap_map_swappable(mm,addr,page,1);//将页面标记为可交换
+               page->pra_vaddr = addr;//将页面结构 page 中的 pra_vaddr 字段设置为虚拟地址 addr，以表示这个页面是由访问异常加载的
+           } else {
+               cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);
+               goto failed;
+           }
+      }
+     …………
+   }	
+   ```
+
+2. 请描述页目录项（Page Directory Entry）和页表项（Page Table Entry）中组成部分对ucore实现页替换算法的潜在用处
+
+   - **PDE：**PDE为ucore管理和维护内存提供了结构上的支持
+     - **多级页表管理：**利用多级页表机制，使得4GB的地址空间映射到物理内存上，多级列表帮助ucore管理更大的内存空间
+     - **内存隔离：**通过设置PDE，ucore为不同的进程分配不同的页表，也就实现了不同进程数据彼此独立
+   - **PTE：**
+     - **存在位（Present Bit）**：存在位表示一个虚拟页是否当前存在于物理内存中。在页替换算法中，如果某个虚拟页需要被替换出去，可以通过将存在位设置为0来表示该虚拟页不再存在于内存中。
+     - **访问位（Accessed Bit）**：访问位用于记录虚拟页的访问情况。在一些页替换算法中，如Clock算法，访问位用于判断虚拟页的访问情况，有助于识别哪些页面被频繁访问，哪些可以被替换出去。
+     - **修改位（Dirty Bit）**：修改位表示虚拟页的内容是否被修改过。在页替换算法中，如果虚拟页被修改过，需要将其写回磁盘或交换空间，以确保数据的一致性。修改位可以帮助算法决定哪些页面需要写回。
+     - **页面帧号（Page Frame Number）**：页面帧号字段指示虚拟页对应的物理页框号。在页替换算法中，需要根据这个字段确定哪个物理页被替换出去，以便将新的虚拟页加载到相同的物理页框。
+     - **权限位（Protection Bits）**：权限位用于指定虚拟页的读写权限。在某些页替换算法中，需要检查虚拟页的权限，以决定是否可以替换出去。如果虚拟页是只读的，通常不会被替换出去。
+
+3. 如果ucore的缺页服务例程在执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
+
+   - **触发异常**：当程序访问一个虚拟内存地址，而相应的页表项标志位（Present Bit）表示该虚拟页不在物理内存中（存在位为0）时，硬件会触发页访问异常。
+   - **保存上下文**：硬件会自动保存当前进程的上下文，包括程序计数器（PC）和其他寄存器的值。
+   - **转入异常处理程序**：硬件将控制权传递给操作系统内核的缺页异常处理程序。
+   - **处理缺页异常**：缺页异常处理程序会根据虚拟地址和当前进程的页表等信息，确定页面调度策略，选择一个物理页来替换或加载进程所需的虚拟页。
+   - **更新页表**：在处理缺页时，操作系统会更新页表，将虚拟页映射到新的物理页框中，以满足进程对虚拟内存的访问需求。
+   - **回复上下文**：处理完缺页异常后，硬件会恢复之前保存的进程上下文，继续执行导致缺页异常的指令。
+
+4. 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
+
+   - Page数据结构通常表示物理页框，每个Page结构对应一个物理页。
+   - 页表中的页目录项（Page Directory Entry）和页表项（Page Table Entry）包含了关于虚拟页与物理页的映射信息。
+   - 通过这些映射信息，操作系统可以找到虚拟页对应的物理页框，将虚拟地址转化为物理地址，或者反之。
+
 
 
 
