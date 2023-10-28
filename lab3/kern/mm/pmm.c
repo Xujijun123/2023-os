@@ -244,16 +244,18 @@ pte_t *get_pte(pde_t *pgdir, uintptr_t la, bool create) {
      *   PTE_U           0x004                   // page table/directory entry
      * flags bit : User can access
      */
-    pde_t *pdep1 = &pgdir[PDX1(la)];
-    if (!(*pdep1 & PTE_V)) {
-        struct Page *page;
-        if (!create || (page = alloc_page()) == NULL) {
+    pde_t *pdep1 = &pgdir[PDX1(la)];//页目录pgdir中获取对应的页表项pdep1
+    //宏PDX1(la)将虚拟地址la的高10位作为页目录项的索引
+    if (!(*pdep1 & PTE_V)) {//如果对应的页表不存在
+        struct Page *page;//创建一个新的页表
+        if (!create || (page = alloc_page()) == NULL) {/*如果create参数为false或者分配物理页失败，则返回NULL
+        否则，通过alloc_page函数分配一个物理页*/
             return NULL;
         }
-        set_page_ref(page, 1);
-        uintptr_t pa = page2pa(page);
-        memset(KADDR(pa), 0, PGSIZE);
-        *pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V);
+        set_page_ref(page, 1);//该物理页的引用次数计为1
+        uintptr_t pa = page2pa(page);//获取该物理页的物理地址
+        memset(KADDR(pa), 0, PGSIZE);//将该物理页清零
+        *pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V);//pte_create函数创建一个新的页表项，将新创建的页表项写入pdep1中
     }
     pde_t *pdep0 = &((pde_t *)KADDR(PDE_ADDR(*pdep1)))[PDX0(la)];
 //    pde_t *pdep0 = &((pde_t *)(PDE_ADDR(*pdep1)))[PDX0(la)];
