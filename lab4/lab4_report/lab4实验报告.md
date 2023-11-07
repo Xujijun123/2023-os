@@ -57,6 +57,6 @@ proc_run(struct proc_struct *proc) {
 
 ​	在这个实验中，内核线程`init_main`函数只进行了简单的字符串输出，但在后续的实验可以根据线程的功能需求来设计特定的线程
 
-![](./make_qemu)
+![](./make_qemu.png)
 
-![](./make_grade)
+![](./make_grade.png)
