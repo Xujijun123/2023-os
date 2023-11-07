@@ -8330,9 +8330,9 @@ ffffffffc0204374:	8b89                	andi	a5,a5,2
 ffffffffc0204376:	4901                	li	s2,0
     if (read_csr(sstatus) & SSTATUS_SIE) {
 ffffffffc0204378:	e3b1                	bnez	a5,ffffffffc02043bc <proc_run+0x66>
-            lcr3(next->cr3);
+        lcr3(next->cr3);
 ffffffffc020437a:	745c                	ld	a5,168(s0)
-            current = proc;
+        current = proc;
 ffffffffc020437c:	00012717          	auipc	a4,0x12
 ffffffffc0204380:	12873a23          	sd	s0,308(a4) # ffffffffc02164b0 <current>
 
@@ -8345,7 +8345,7 @@ ffffffffc0204384:	80000737          	lui	a4,0x80000
 ffffffffc0204388:	00c7d79b          	srliw	a5,a5,0xc
 ffffffffc020438c:	8fd9                	or	a5,a5,a4
 ffffffffc020438e:	18079073          	csrw	satp,a5
-            switch_to(&(prev->context), &(next->context));
+        switch_to(&(prev->context), &(next->context));
 ffffffffc0204392:	03040593          	addi	a1,s0,48
 ffffffffc0204396:	03048513          	addi	a0,s1,48
 ffffffffc020439a:	e33ff0ef          	jal	ra,ffffffffc02041cc <switch_to>
