@@ -1,6 +1,60 @@
 # 练习1：分配并初始化一个进程块（需要编码）
 
 # 练习2：为新创建的内核线程分配资源（需要编码）
+```c
+do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
+    int ret = -E_NO_FREE_PROC;
+    struct proc_struct *proc;
+    if (nr_process >= MAX_PROCESS) {
+        goto fork_out;
+    }
+    ret = -E_NO_MEM;
+    
+    if ((proc = alloc_proc()) == NULL) {
+        goto fork_out;
+    }
+
+    proc->parent = current;
+
+    if (setup_kstack(proc) != 0) {
+        goto bad_fork_cleanup_proc;
+    }
+    if (copy_mm(clone_flags, proc) != 0) {
+        goto bad_fork_cleanup_kstack;
+    }
+    copy_thread(proc, stack, tf);
+
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        proc->pid = get_pid();
+        hash_proc(proc);
+        list_add(&proc_list, &(proc->list_link));
+        nr_process ++;
+    }
+    local_intr_restore(intr_flag);
+
+    wakeup_proc(proc);
+
+    ret = proc->pid;
+    
+    
+fork_out:
+    return ret;
+
+bad_fork_cleanup_kstack:
+    put_kstack(proc);
+bad_fork_cleanup_proc:
+    kfree(proc);
+    goto fork_out;
+}
+```
+
+首先使用 alloc_proc 分配一个进程块，使用 setup_kstack 设置这个进程在内核栈上对应的空间（两个页）。之后将内存进行拷贝（此实验中没有实现），并且复制上下文。再之后由于会对全局的资源进行改动，所以先关闭中断，分配 pid，将进程块链入哈希表和进程链表。最后恢复中断，设置运行状态为 PROC_RUNNABLE，并且返回进程对应的 pid。
+调用 `alloc_proc` 分配一个进程块，然后调用用 `setup_kstack` 设置这个进程的内核栈。调用 `copy_mm` 复制内存管理信息到新进程,调用 `copy_thread` 复制线程信息到新进程。接下来对全局的资源进行改动，先使用 `local_intr_save` 函数关闭中断并保存中断状态，然后设置新进程的进程 id,即`pid`、将进程块链入哈希表和进程链表，再使用 `local_intr_restore` 函数恢复中断状态。唤醒被挂起的进程，并且返回进程对应的`pid`。
+
+## 问：请说明 ucore 是否做到给每个新 fork 的线程一个唯一的 id？请说明你的分析和理由。
+ucore 通过`get_pid`函数分配进程 pid。函数`get_pid()`通过遍历进程列表，查找一个未被使用的pid，并返回该pid。具体实现是，首先定义静态变量`last_pid`和`next_safe`,`last_pid`为上次被使用的pid,`next_safe`是可用的 pid 号的上界。然后每次调用`get_pid()`函数时，`last_pid`递增，直到大于等于`MAX_PID`时，重新从1开始。在递增过程中，如果找到了已被使用的pid，就会更新`next_safe`为该已被使用的pid，以便下一次查找时可以跳过这些已被使用的pid。通过这样的实现，可以确保每次调用`get_pid()`函数都会返回一个唯一的pid。
 
 # 练习3：编写proc_run 函数（需要编码）
 
