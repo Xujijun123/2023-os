@@ -56,11 +56,53 @@ proc_run(struct proc_struct *proc) {
    - 给中断帧分配完空间后，就需要构造新进程的中断帧，具体过程是：首先给`tf`进行清零初始化，随后设置设置内核线程的参数和函数指针。要特别注意对`tf.status`的赋值过程，其读取`sstatus`寄存器的值，然后根据特定的位操作，设置`SPP`和`SPIE`位，并同时清除`SIE`位，从而实现特权级别切换、保留中断使能状态并禁用中断的操作。
 
 ​	在这个实验中，内核线程`init_main`函数只进行了简单的字符串输出，但在后续的实验可以根据线程的功能需求来设计特定的线程
-<div style="text-align:center">
-  <img src="./make_qemu.png"  />
-</div>
-<div style="text-align:center">
-  <img src="./make_grade.png"  />
-</div>
 
+![](./make_qemu)
 
+![](./make_grade)
+
+# 扩展练习 Challenge：
+
+说明语句`local_intr_save(intr_flag);....local_intr_restore(intr_flag);`是如何实现开关中断的？
+
+```c
+static inline bool __intr_save(void) {
+    if (read_csr(sstatus) & SSTATUS_SIE) {
+        intr_disable();
+        return 1;
+    }
+    return 0;
+}
+
+static inline void __intr_restore(bool flag) {
+    if (flag) {
+        intr_enable();
+    }
+}
+
+#define local_intr_save(x) \
+    do {                   \
+        x = __intr_save(); \
+    } while (0)
+#define local_intr_restore(x) __intr_restore(x);
+```
+
+通过读取和修改 `CSR` 中的`SIE（Supervisor Interrupt Enable）`位来实现开关中断的操作
+
+- **`__intr_save()`**：
+  - 该内联函数通过读取`CSR`寄存器（`sstatus`）中的`SIE`位来判断中断是否开启。
+  - 如果`SIE`位为1（表示中断开启），则调用`intr_disable()`函数来关闭中断，同时返回1表示中断之前是开启状态。
+  - 如果`SIE`位为0（表示中断关闭），则不执行任何操作，返回0表示中断之前是关闭状态。
+
+- **`__intr_restore(bool flag)`**：
+  - 该内联函数根据传入的`flag`参数，判断之前的中断状态。
+  - 如果`flag`为1，表示中断之前是开启状态，则调用`intr_enable()`函数来重新开启中断。
+  - 如果`flag`为0，表示中断之前是关闭状态，则不执行任何操作，维持中断关闭状态。
+
+- **`local_intr_save(x)`**：
+  - 调用`__intr_save()`函数，将中断状态保存到传入的参数`x`中。
+
+- **`local_intr_restore(x)`**：
+  - 调用了`__intr_restore(x)`函数，根据传入的参数`x`来恢复之前的中断状态。
+
+`local_intr_save(intr_flag)`会在执行时保存当前中断状态，并临时关闭中断。然后，在关键代码执行完成后，`local_intr_restore(intr_flag)`会根据保存的中断状态来恢复中断状态

@@ -102,18 +102,19 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
-        proc->state = PROC_UNINIT;
-        proc->pid = -1;
-        proc->runs = 0;
-        proc->kstack = 0;
-        proc->need_resched = 0;
-        proc->parent = NULL;
-        proc->mm = NULL;
-        memset(&(proc->context), 0, sizeof(struct context));
-        proc->tf = NULL;
-        proc->cr3 = boot_cr3;
-        proc->flags = 0;
-        memset(proc->name, 0, PROC_NAME_LEN);
+        proc->state = PROC_UNINIT; //未初始化
+        proc->pid = -1; //未分配PID
+        proc->runs = 0; //进程的运行次数，未开始运行
+        proc->kstack = 0; //进程的内核栈地址
+        proc->need_resched = 0; //是否需要重新调度，0表示不需要
+        proc->parent = NULL; //父进程
+        proc->mm = NULL; //进程内存管理结构，未分配地址空间
+        memset(&(proc->context), 0, sizeof(struct context)); //进程上下文
+        proc->tf = NULL;//指向中断帧的指针
+        proc->cr3 = boot_cr3;//存储进程的页目录表基址
+        //初始化为ucore启动时建立好的内核虚拟空间的页目录表首地址`boot_cr3`（在`kern/mm/pmm.c`的`pmm_init`函数中初始化）
+        proc->flags = 0; //进程标志位
+        memset(proc->name, 0, PROC_NAME_LEN);//进程名
 
     }
     return proc;
@@ -183,12 +184,13 @@ proc_run(struct proc_struct *proc) {
         *   lcr3():                   Modify the value of CR3 register
         *   switch_to():              Context switching between two processes
         */
-        bool intr_flag;
+        bool intr_flag; //判断是否当前进程是否为目标进程
         struct proc_struct *prev = current, *next = proc;
-        local_intr_save(intr_flag);
+        local_intr_save(intr_flag); //保存中断状态，进行上下文切换
     
-        current = proc;
-        lcr3(next->cr3);
+        current = proc; //切换
+        lcr3(next->cr3); 
+        //切换页目录表，将CR3寄存器设置为目标进程的页目录表基址，以确保进程的虚拟地址空间正确映射
         switch_to(&(prev->context), &(next->context));
         
         local_intr_restore(intr_flag);
@@ -320,31 +322,31 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
 
     if ((proc = alloc_proc()) == NULL) {
         goto fork_out;
-    }
+    }//分配一个新的进程控制块
 
-    proc->parent = current;
+    proc->parent = current;//新创建的进程的父进程指向当前进程
 
-    if (setup_kstack(proc) != 0) {
+    if (setup_kstack(proc) != 0) { //分配内核栈
         goto bad_fork_cleanup_proc;
     }
-    if (copy_mm(clone_flags, proc) != 0) {
+    if (copy_mm(clone_flags, proc) != 0) { //共享当前进程的内存管理信息
         goto bad_fork_cleanup_kstack;
     }
-    copy_thread(proc, stack, tf);
+    copy_thread(proc, stack, tf); //设置新进程的中断帧和上下文
 
-    bool intr_flag;
+    bool intr_flag; //关闭中断，确保修改全局数据结构时不会被打断
     local_intr_save(intr_flag);
     {
-        proc->pid = get_pid();
-        hash_proc(proc);
-        list_add(&proc_list, &(proc->list_link));
-        nr_process ++;
+        proc->pid = get_pid(); //分配id
+        hash_proc(proc);//加入哈希表
+        list_add(&proc_list, &(proc->list_link)); //加入进程列表
+        nr_process ++;//进程计数器++
     }
-    local_intr_restore(intr_flag);
+    local_intr_restore(intr_flag);//恢复中断
 
-    wakeup_proc(proc);
+    wakeup_proc(proc); //状态设为PROC_RUNNABLE，可调度
 
-    ret = proc->pid;
+    ret = proc->pid; //返回值为pif，创建成功
     
     
 fork_out:
