@@ -8124,43 +8124,44 @@ ffffffffc0204246:	c529                	beqz	a0,ffffffffc0204290 <alloc_proc+0x5a
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
-        proc->state = PROC_UNINIT;
+        proc->state = PROC_UNINIT; //未初始化
 ffffffffc0204248:	57fd                	li	a5,-1
 ffffffffc020424a:	1782                	slli	a5,a5,0x20
 ffffffffc020424c:	e11c                	sd	a5,0(a0)
-        proc->runs = 0;
-        proc->kstack = 0;
-        proc->need_resched = 0;
-        proc->parent = NULL;
-        proc->mm = NULL;
-        memset(&(proc->context), 0, sizeof(struct context));
+        proc->runs = 0; //进程的运行次数，未开始运行
+        proc->kstack = 0; //进程的内核栈地址
+        proc->need_resched = 0; //是否需要重新调度，0表示不需要
+        proc->parent = NULL; //父进程
+        proc->mm = NULL; //进程内存管理结构，未分配地址空间
+        memset(&(proc->context), 0, sizeof(struct context)); //进程上下文
 ffffffffc020424e:	07000613          	li	a2,112
 ffffffffc0204252:	4581                	li	a1,0
-        proc->runs = 0;
+        proc->runs = 0; //进程的运行次数，未开始运行
 ffffffffc0204254:	00052423          	sw	zero,8(a0)
-        proc->kstack = 0;
+        proc->kstack = 0; //进程的内核栈地址
 ffffffffc0204258:	00053823          	sd	zero,16(a0)
-        proc->need_resched = 0;
+        proc->need_resched = 0; //是否需要重新调度，0表示不需要
 ffffffffc020425c:	00052c23          	sw	zero,24(a0)
-        proc->parent = NULL;
+        proc->parent = NULL; //父进程
 ffffffffc0204260:	02053023          	sd	zero,32(a0)
-        proc->mm = NULL;
+        proc->mm = NULL; //进程内存管理结构，未分配地址空间
 ffffffffc0204264:	02053423          	sd	zero,40(a0)
-        memset(&(proc->context), 0, sizeof(struct context));
+        memset(&(proc->context), 0, sizeof(struct context)); //进程上下文
 ffffffffc0204268:	03050513          	addi	a0,a0,48
 ffffffffc020426c:	025000ef          	jal	ra,ffffffffc0204a90 <memset>
-        proc->tf = NULL;
-        proc->cr3 = boot_cr3;
+        proc->tf = NULL;//指向中断帧的指针
+        proc->cr3 = boot_cr3;//存储进程的页目录表基址
 ffffffffc0204270:	00012797          	auipc	a5,0x12
 ffffffffc0204274:	27878793          	addi	a5,a5,632 # ffffffffc02164e8 <boot_cr3>
 ffffffffc0204278:	639c                	ld	a5,0(a5)
-        proc->tf = NULL;
+        proc->tf = NULL;//指向中断帧的指针
 ffffffffc020427a:	0a043023          	sd	zero,160(s0)
-        proc->flags = 0;
+        //初始化为ucore启动时建立好的内核虚拟空间的页目录表首地址`boot_cr3`（在`kern/mm/pmm.c`的`pmm_init`函数中初始化）
+        proc->flags = 0; //进程标志位
 ffffffffc020427e:	0a042823          	sw	zero,176(s0)
-        proc->cr3 = boot_cr3;
+        proc->cr3 = boot_cr3;//存储进程的页目录表基址
 ffffffffc0204282:	f45c                	sd	a5,168(s0)
-        memset(proc->name, 0, PROC_NAME_LEN);
+        memset(proc->name, 0, PROC_NAME_LEN);//进程名
 ffffffffc0204284:	463d                	li	a2,15
 ffffffffc0204286:	4581                	li	a1,0
 ffffffffc0204288:	0b440513          	addi	a0,s0,180
@@ -8330,9 +8331,9 @@ ffffffffc0204374:	8b89                	andi	a5,a5,2
 ffffffffc0204376:	4901                	li	s2,0
     if (read_csr(sstatus) & SSTATUS_SIE) {
 ffffffffc0204378:	e3b1                	bnez	a5,ffffffffc02043bc <proc_run+0x66>
-        lcr3(next->cr3);
+        lcr3(next->cr3); 
 ffffffffc020437a:	745c                	ld	a5,168(s0)
-        current = proc;
+        current = proc; //切换
 ffffffffc020437c:	00012717          	auipc	a4,0x12
 ffffffffc0204380:	12873a23          	sd	s0,308(a4) # ffffffffc02164b0 <current>
 
@@ -8447,13 +8448,13 @@ ffffffffc0204442:	84b2                	mv	s1,a2
 ffffffffc0204444:	df3ff0ef          	jal	ra,ffffffffc0204236 <alloc_proc>
 ffffffffc0204448:	842a                	mv	s0,a0
 ffffffffc020444a:	22050263          	beqz	a0,ffffffffc020466e <do_fork+0x24e>
-    proc->parent = current;
+    proc->parent = current;//新创建的进程的父进程指向当前进程
 ffffffffc020444e:	00012a17          	auipc	s4,0x12
 ffffffffc0204452:	062a0a13          	addi	s4,s4,98 # ffffffffc02164b0 <current>
 ffffffffc0204456:	000a3783          	ld	a5,0(s4)
     struct Page *page = alloc_pages(KSTACKPAGE);
 ffffffffc020445a:	4509                	li	a0,2
-    proc->parent = current;
+    proc->parent = current;//新创建的进程的父进程指向当前进程
 ffffffffc020445c:	f01c                	sd	a5,32(s0)
     struct Page *page = alloc_pages(KSTACKPAGE);
 ffffffffc020445e:	f5cfc0ef          	jal	ra,ffffffffc0200bba <alloc_pages>
@@ -8587,7 +8588,7 @@ ffffffffc0204586:	853e                	mv	a0,a5
 ffffffffc0204588:	00080663          	beqz	a6,ffffffffc0204594 <do_fork+0x174>
 ffffffffc020458c:	00007797          	auipc	a5,0x7
 ffffffffc0204590:	acc7a823          	sw	a2,-1328(a5) # ffffffffc020b05c <next_safe.1574>
-        proc->pid = get_pid();
+        proc->pid = get_pid(); //分配id
 ffffffffc0204594:	c048                	sw	a0,4(s0)
     list_add(hash_list + pid_hashfn(proc->pid), &(proc->hash_link));
 ffffffffc0204596:	45a9                	li	a1,10
@@ -8602,20 +8603,20 @@ ffffffffc02045aa:	953e                	add	a0,a0,a5
 ffffffffc02045ac:	6510                	ld	a2,8(a0)
 ffffffffc02045ae:	0d840793          	addi	a5,s0,216
 ffffffffc02045b2:	6494                	ld	a3,8(s1)
-        nr_process ++;
+        nr_process ++;//进程计数器++
 ffffffffc02045b4:	00092703          	lw	a4,0(s2)
     prev->next = next->prev = elm;
 ffffffffc02045b8:	e21c                	sd	a5,0(a2)
 ffffffffc02045ba:	e51c                	sd	a5,8(a0)
     elm->next = next;
 ffffffffc02045bc:	f070                	sd	a2,224(s0)
-        list_add(&proc_list, &(proc->list_link));
+        list_add(&proc_list, &(proc->list_link)); //加入进程列表
 ffffffffc02045be:	0c840793          	addi	a5,s0,200
     elm->prev = prev;
 ffffffffc02045c2:	ec68                	sd	a0,216(s0)
     prev->next = next->prev = elm;
 ffffffffc02045c4:	e29c                	sd	a5,0(a3)
-        nr_process ++;
+        nr_process ++;//进程计数器++
 ffffffffc02045c6:	2705                	addiw	a4,a4,1
 ffffffffc02045c8:	00012617          	auipc	a2,0x12
 ffffffffc02045cc:	02f63823          	sd	a5,48(a2) # ffffffffc02165f8 <proc_list+0x8>
@@ -8627,10 +8628,10 @@ ffffffffc02045d4:	00012797          	auipc	a5,0x12
 ffffffffc02045d8:	eee7aa23          	sw	a4,-268(a5) # ffffffffc02164c8 <nr_process>
     if (flag) {
 ffffffffc02045dc:	06099a63          	bnez	s3,ffffffffc0204650 <do_fork+0x230>
-    wakeup_proc(proc);
+    wakeup_proc(proc); //状态设为PROC_RUNNABLE，可调度
 ffffffffc02045e0:	8522                	mv	a0,s0
 ffffffffc02045e2:	344000ef          	jal	ra,ffffffffc0204926 <wakeup_proc>
-    ret = proc->pid;
+    ret = proc->pid; //返回值为pif，创建成功
 ffffffffc02045e6:	4048                	lw	a0,4(s0)
 }
 ffffffffc02045e8:	70a2                	ld	ra,40(sp)
@@ -8709,7 +8710,7 @@ ffffffffc0204672:	00002697          	auipc	a3,0x2
 ffffffffc0204676:	5ae68693          	addi	a3,a3,1454 # ffffffffc0206c20 <default_pmm_manager+0xc0>
 ffffffffc020467a:	00001617          	auipc	a2,0x1
 ffffffffc020467e:	36e60613          	addi	a2,a2,878 # ffffffffc02059e8 <commands+0x998>
-ffffffffc0204682:	10600593          	li	a1,262
+ffffffffc0204682:	10800593          	li	a1,264
 ffffffffc0204686:	00002517          	auipc	a0,0x2
 ffffffffc020468a:	5b250513          	addi	a0,a0,1458 # ffffffffc0206c38 <default_pmm_manager+0xd8>
 ffffffffc020468e:	b49fb0ef          	jal	ra,ffffffffc02001d6 <__panic>
@@ -8772,7 +8773,7 @@ ffffffffc02046fa:	1141                	addi	sp,sp,-16
     panic("process exit!!.\n");
 ffffffffc02046fc:	00002617          	auipc	a2,0x2
 ffffffffc0204700:	50c60613          	addi	a2,a2,1292 # ffffffffc0206c08 <default_pmm_manager+0xa8>
-ffffffffc0204704:	16e00593          	li	a1,366
+ffffffffc0204704:	17000593          	li	a1,368
 ffffffffc0204708:	00002517          	auipc	a0,0x2
 ffffffffc020470c:	53050513          	addi	a0,a0,1328 # ffffffffc0206c38 <default_pmm_manager+0xd8>
 do_exit(int error_code) {
@@ -8982,7 +8983,7 @@ ffffffffc0204898:	b725                	j	ffffffffc02047c0 <proc_init+0xaa>
         panic("cannot alloc idleproc.\n");
 ffffffffc020489a:	00002617          	auipc	a2,0x2
 ffffffffc020489e:	40e60613          	addi	a2,a2,1038 # ffffffffc0206ca8 <default_pmm_manager+0x148>
-ffffffffc02048a2:	18600593          	li	a1,390
+ffffffffc02048a2:	18800593          	li	a1,392
 ffffffffc02048a6:	00002517          	auipc	a0,0x2
 ffffffffc02048aa:	39250513          	addi	a0,a0,914 # ffffffffc0206c38 <default_pmm_manager+0xd8>
 ffffffffc02048ae:	929fb0ef          	jal	ra,ffffffffc02001d6 <__panic>
@@ -8991,7 +8992,7 @@ ffffffffc02048b2:	00002697          	auipc	a3,0x2
 ffffffffc02048b6:	48e68693          	addi	a3,a3,1166 # ffffffffc0206d40 <default_pmm_manager+0x1e0>
 ffffffffc02048ba:	00001617          	auipc	a2,0x1
 ffffffffc02048be:	12e60613          	addi	a2,a2,302 # ffffffffc02059e8 <commands+0x998>
-ffffffffc02048c2:	1ad00593          	li	a1,429
+ffffffffc02048c2:	1af00593          	li	a1,431
 ffffffffc02048c6:	00002517          	auipc	a0,0x2
 ffffffffc02048ca:	37250513          	addi	a0,a0,882 # ffffffffc0206c38 <default_pmm_manager+0xd8>
 ffffffffc02048ce:	909fb0ef          	jal	ra,ffffffffc02001d6 <__panic>
@@ -9000,14 +9001,14 @@ ffffffffc02048d2:	00002697          	auipc	a3,0x2
 ffffffffc02048d6:	44668693          	addi	a3,a3,1094 # ffffffffc0206d18 <default_pmm_manager+0x1b8>
 ffffffffc02048da:	00001617          	auipc	a2,0x1
 ffffffffc02048de:	10e60613          	addi	a2,a2,270 # ffffffffc02059e8 <commands+0x998>
-ffffffffc02048e2:	1ac00593          	li	a1,428
+ffffffffc02048e2:	1ae00593          	li	a1,430
 ffffffffc02048e6:	00002517          	auipc	a0,0x2
 ffffffffc02048ea:	35250513          	addi	a0,a0,850 # ffffffffc0206c38 <default_pmm_manager+0xd8>
 ffffffffc02048ee:	8e9fb0ef          	jal	ra,ffffffffc02001d6 <__panic>
         panic("create init_main failed.\n");
 ffffffffc02048f2:	00002617          	auipc	a2,0x2
 ffffffffc02048f6:	3fe60613          	addi	a2,a2,1022 # ffffffffc0206cf0 <default_pmm_manager+0x190>
-ffffffffc02048fa:	1a600593          	li	a1,422
+ffffffffc02048fa:	1a800593          	li	a1,424
 ffffffffc02048fe:	00002517          	auipc	a0,0x2
 ffffffffc0204902:	33a50513          	addi	a0,a0,826 # ffffffffc0206c38 <default_pmm_manager+0xd8>
 ffffffffc0204906:	8d1fb0ef          	jal	ra,ffffffffc02001d6 <__panic>

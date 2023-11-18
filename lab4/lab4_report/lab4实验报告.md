@@ -1,5 +1,57 @@
 # 练习1：分配并初始化一个进程块（需要编码）
+```c
+alloc_proc(void) {
+    struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
+    if (proc != NULL) {
+        proc->state = PROC_UNINIT; //未初始化
+        proc->pid = -1; //未分配PID
+        proc->runs = 0; //进程的运行次数，未开始运行
+        proc->kstack = 0; //进程的内核栈地址
+        proc->need_resched = 0; //是否需要重新调度，0表示不需要
+        proc->parent = NULL; //父进程
+        proc->mm = NULL; //进程内存管理结构，未分配地址空间
+        memset(&(proc->context), 0, sizeof(struct context)); //进程上下文
+        proc->tf = NULL;//指向中断帧的指针
+        proc->cr3 = boot_cr3;//存储进程的页目录表基址
+        //初始化为ucore启动时建立好的内核虚拟空间的页目录表首地址`boot_cr3`（在`kern/mm/pmm.c`的`pmm_init`函数中初始化）
+        proc->flags = 0; //进程标志位
+        memset(proc->name, 0, PROC_NAME_LEN);//进程名
 
+    }
+    return proc;
+}
+```
+## proc_struct中struct context context和struct trapframe *tf成员变量含义和在本实验中的作用
+struct context context：保存上下文寄存器，使得可以切换和恢复进程的上下文
+```C
+struct context {
+    uintptr_t ra;
+    uintptr_t sp;
+    uintptr_t s0;
+    uintptr_t s1;
+    uintptr_t s2;
+    uintptr_t s3;
+    uintptr_t s4;
+    uintptr_t s5;
+    uintptr_t s6;
+    uintptr_t s7;
+    uintptr_t s8;
+    uintptr_t s9;
+    uintptr_t s10;
+    uintptr_t s11;
+};
+```
+struct trapframe *tf：当前中断的中断帧,以便在中断处理程序执行完毕后能够恢复到中断发生之前的执行状态。
+```
+struct trapframe {
+    struct pushregs gpr;    // 通用寄存器上下文
+    uintptr_t status;       // 状态寄存器的值
+    uintptr_t epc;          // 异常指令的地址
+    uintptr_t badvaddr;     // 异常访问的地址
+    uintptr_t cause;        // 异常原因
+};
+```
+trapframe中的 pushregs结构体保存了通用寄存器，包括硬编码的zero、栈指针sp、返回地址ra、全局指针gp、线程指针tp等
 # 练习2：为新创建的内核线程分配资源（需要编码）
 ```c
 do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
@@ -159,3 +211,97 @@ static inline void __intr_restore(bool flag) {
   - 调用了`__intr_restore(x)`函数，根据传入的参数`x`来恢复之前的中断状态。
 
 `local_intr_save(intr_flag)`会在执行时保存当前中断状态，并临时关闭中断。然后，在关键代码执行完成后，`local_intr_restore(intr_flag)`会根据保存的中断状态来恢复中断状态
+# 重要知识点
+## 空闲进程idleproc（第0个内核线程）
+在操作系统中，空闲进程是一个特殊的进程，它的主要目的是在系统没有其他任务需要执行时，占用 CPU 时间，同时便于进程调度的统一化。第0个内核线程完成内核中各个子系统的初始化，然后就通过执行cpu_idle函数,在CPU没有其他任务可执行时，进入一个无限循环，当need_resched =1时表示需要重新调度，使用schedule函数函数调度进程
+```c
+void
+cpu_idle(void) {
+    while (1) {
+        if (current->need_resched) {
+            schedule();
+        }
+    }
+}
+```
+## schedule函数
+它的作用是决定需要运行哪个进程，并根据结果进行进程上下文的切换
+- 禁用本地cpu中断,以免产生竞争条件和上下文切换问题（local_intr_save）
+- 设置当前内核线程current->need_resched为0；
+- 遍历proc_list队列，找到一个处于就绪态(PROC_RUNNABLE)的线程或进程next；
+<br> ps:如果遍历完所有的进程都没有发现可以运行的进程，则将 CPU 的执行权切换到一个空闲进程（idleproc）上，并等待其他进程变为就绪状态
+- 找到这样的进程后，就调用proc_run函数，保存当前进程current的执行现场（进程上下文），恢复新进程的执行现场，完成进程切换。
+- 如果找到了要运行的进程，则将运行时间加一，并且调用 proc_run 函数（切换进程设置proc;切换新进程的页表；switch_to切换到新进程）
+<br>ps: **switch_to** 先将当前寄存器ra,sp,s0~s11保存在指定位置上，然后载入新进程的寄存器上下文。这个函数的ret地址在ra中，由于在初始化时把上下文的ra寄存器设定成了forkret函数的入口，所以这里会返回到forkret函数。**forkret**将传进来的参数a0，也就是**进程的中断帧**放在了sp,接着在__trapret中直接从中断帧里面恢复所有的寄存器
+```c
+  .globl forkrets
+forkrets:
+    # set stack to this new process's trapframe
+    move sp, a0
+    j __trapret
+```
+```c
+ .globl __trapret
+__trapret:
+    RESTORE_ALL//会从栈中恢复所有寄存器的值，包括 ra, sp, s0 ~s11
+    # go back from supervisor call
+    sret//从异常处理返回到用户态。它会将处理器的模式从内核态切换回用户态，同时恢复用户态下的程序计数器（PC）和相关寄存器的值。
+    //此指令类似于返回指令 ret，但针对中断处理返回到用户态做了相应的处理。
+```
+- 恢复中断状态（ local_intr_restore ）
+
+```c
+void
+schedule(void) {
+    bool intr_flag;
+    list_entry_t *le, *last;
+    struct proc_struct *next = NULL;
+    local_intr_save(intr_flag);
+    {
+        current->need_resched = 0;
+        last = (current == idleproc) ? &proc_list : &(current->list_link);
+        le = last;
+        do {
+            if ((le = list_next(le)) != &proc_list) {
+                next = le2proc(le, list_link);
+                if (next->state == PROC_RUNNABLE) {
+                    break;
+                }
+            }
+        } while (le != last);
+        if (next == NULL || next->state != PROC_RUNNABLE) {
+            next = idleproc;
+        }
+        next->runs ++;
+        if (next != current) {
+            proc_run(next);
+        }
+    }
+    local_intr_restore(intr_flag);
+}
+
+```
+<br>
+
+## kernel_thread函数
+idleproc进入等待状态之后，uCore接下来还需创建其他进程来完成各种工作，于是就通过调用kernel_thread函数创建了一个内核线程init_main。<br>
+- 首先初始化了trapframe结构体类型的上下文tf，将它的s0寄存器保存对应函数的指针，s1保存该函数的参数
+- 设置status为设置读取CSR中的SSTATUS_SPP（特权级是用户模式），SSTATUS_SPIE（处理前一个中断时对中断的响应状态）字段，消除SSTATUS_SIE字段（处理中断时对中断的响应状态）,从而实现**特权级别切换、保留中断使能状态并禁用中断的操作**。
+- epc设置为**kernel_thread_entry**。由kernel_thread_entry将s1中的参数放到a0寄存器中并跳转到s0指定的函数位置，执行该函数。
+- 最后调用do_fork创建新进程（内核线程），它的参数clone_flags=0时表示新进程或线程将完全继承父进程或线程的虚拟内存、文件系统状态、信号处理设置等。这种情况下，新进程的行为将与父进程完全相同。
+
+## copy_thread函数
+- 将proc 结构的 tf 指针指向进程的内核栈空间中一段保留的 trap frame 内存区域。
+- 拷贝trap frame的上下文内容
+- tf的a0寄存器（返回值）设置为0，说明这个进程是一个子进程
+- 上下文中的ra设置为了forkret函数的入口
+- tf放在上下文的栈顶。
+
+## 实验流程简述
+- proc_init直接初始化idleproc，调用**kernel_thread**创建init_main。
+- kernel_thread中使用**do_fork**为指定函数创建线程。
+- do_fork中使用了**copy_thread**拷贝中断帧，并将ra设置为forkret函数的入口。它的作用在下一条。
+- idleproc使用**cpu_idle**在CPU没有其他任务可执行时，进入一个无限循环，当need_resched =1时表示需要重新调度，使用**schedule**函数函数调度进程。
+- schedule决定需要运行哪个进程，并根据结果进行进程上下文的切换。上下文的切换用到**proc_run**。
+- proc_run的作用：切换进程设置proc;切换新进程的页表；**switch_to**保存旧寄存器载入新寄存器，切换到新进程。
+- 由于在初始化时（第三行）把上下文的ra寄存器设定成了forkret函数的入口，switch_to会返回到forkret函数。**forkret**将传进来的参数a0，也就是**进程的中断帧**放在了sp,接着在__trapret中直接从中断帧里面恢复所有的寄存器。
