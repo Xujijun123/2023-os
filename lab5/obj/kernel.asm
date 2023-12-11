@@ -9660,7 +9660,7 @@ ffffffffc0204d70:	0b440513          	addi	a0,s0,180
 ffffffffc0204d74:	48a010ef          	jal	ra,ffffffffc02061fe <memset>
 
 
-            proc->wait_state = 0; //等待状态
+            proc->wait_state = 0; //新增等待状态
 ffffffffc0204d78:	0e042623          	sw	zero,236(s0)
             proc->cptr = proc->yptr = proc->optr = NULL; //设置指针
 ffffffffc0204d7c:	10043023          	sd	zero,256(s0)

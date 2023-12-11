@@ -1,8 +1,8 @@
 # 练习1：加载应用程序并执行（需要编码）
 
-`do_execv`函数调用`load_icode`（位于kern/process/proc.c中）来加载并解析一个处于内存中的ELF执行文件格式的应用程序。你需要补充`load_icode`的第6步，建立相应的用户内存空间来放置应用程序的代码段、数据段等，且要设置好`proc_struct`结构中的成员变量`trapframe`中的内容，确保在执行此进程后，能够从应用程序设定的起始执行地址开始执行。需设置正确的`trapframe`内容。
+>`do_execv`函数调用`load_icode`（位于kern/process/proc.c中）来加载并解析一个处于内存中的ELF执行文件格式的应用程序。你需要补充`load_icode`的第6步，建立相应的用户内存空间来放置应用程序的代码段、数据段等，且要设置好`proc_struct`结构中的成员变量`trapframe`中的内容，确保在执行此进程后，能够从应用程序设定的起始执行地址开始执行。需设置正确的`trapframe`内容。
 * 请在实验报告中简要说明你的设计实现过程。</br>
->编写`load_icode`函数第六步，完成中断帧的设置：</br>
+编写`load_icode`函数第六步，完成中断帧的设置：</br>
 （1）设置`set tf->gpr.sp`，将`gpr.sp`指向用户栈顶，使得在用户程序运行时可以正确访问栈。</br>
 （2）设置`tf->epc`，设置`epc`储存用户程序的入口点地址。</br>
 （3）设置`tf->status`，存储处理器的状态信息。</br>
@@ -18,8 +18,9 @@
     tf->epc = elf->e_entry;
     tf->status = (read_csr(sstatus) | SSTATUS_SPIE ) & ~SSTATUS_SPP;
 ```
-* 请简要描述这个用户态进程被ucore选择占用CPU执行（RUNNING态）到具体执行应用程序第一条指令的整个经过。
->用户态进程被`ucore`选择占用CPU后，先将`satp`寄存器设置为用户态进程的页表基址，然后调用`switch_to`进行上下文切换，将当前寄存器状态保存到之前的`context`中，然后将要执行的进程的`context`中的寄存器状态恢复到寄存器中，使用`ret`指令跳转到`ra`寄存器指向的地址处继续执行。</br>
+>* 请简要描述这个用户态进程被ucore选择占用CPU执行（RUNNING态）到具体执行应用程序第一条指令的整个经过。
+
+用户态进程被`ucore`选择占用CPU后，先将`satp`寄存器设置为用户态进程的页表基址，然后调用`switch_to`进行上下文切换，将当前寄存器状态保存到之前的`context`中，然后将要执行的进程的`context`中的寄存器状态恢复到寄存器中，使用`ret`指令跳转到`ra`寄存器指向的地址处继续执行。</br>
 在`copy_thread`函数中已经将`ra`寄存器设置为了`forkret`函数的地址，所以会跳转到`forkret`函数中，转而执行`forkrets(tf)`，再执行`RESTORE_ALL`。因为在`load_icode`将`SSTATUS_SPP`设置为0，故不执行跳转，保存内核态栈指针，恢复`sstatus`和`sepc`以及通用寄存器，然后执行 sret 指令回到用户态，跳转到`sepc`指向的地址处，即`ELF`文件的入口地址，从而执行用户态程序。
 
 # 练习2：父进程复制自己的内存空间给子进程（需要编码）

@@ -125,7 +125,7 @@ alloc_proc(void) {
             memset(proc->name, 0, PROC_NAME_LEN);//进程名
 
 
-            proc->wait_state = 0; //等待状态
+            proc->wait_state = 0; //新增等待状态
             proc->cptr = proc->yptr = proc->optr = NULL; //设置指针
     }
     return proc;
