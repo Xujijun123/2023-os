@@ -202,6 +202,350 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
 
 # 练习2: 完成基于文件系统的执行程序机制的实现（需要编码）
 
+> 改写`proc.c`中的`load_icode`函数和其他相关函数，实现基于文件系统的执行程序机制。执行：`make qemu`。如 果能看看到`sh`用户程序的执行界面，则基本成功了。如果在`sh`用户界面上可以执行”ls”,”hello”等其他放 置在`sfs`文件系统中的其他执行程序，则可以认为本实验基本成功。
+
+#### `load_icode`函数
+
+(1) 为当前进程创建一个新的内存管理结构（mm）。
+
+(2) 通过`setup_pgdir(mm)`创建一个新的页目录,并将`mm->pgdir`设置为内核虚拟地址。
+
+(3) 读取`ELF`头部信息，并检查`ELF`头部的魔数是否正确验从而验证文件格式是否正确。
+
+(4) 遍历ELF文件的程序头表，并对每个程序段进行处理。具体的处理包括了内存映射、读取程序内容到内存、设置页面权限等操作。
+
+* `load_icode_read`读取可执行文件的程序头表，并对每个程序段进行必要的检查，以确保程序段的合法性和正确性。
+* 设置`vm_flags`和`perm`,这两个变量用于表示页面的权限和标志，根据程序段的标志位`（p_flags)`来设置。
+* 调用`mm_map`函数，创建新的虚拟内存区域，并映射到对应的物理内存，将程序段映射到当前进程的地址空间中。
+* `pgdir_alloc_page`在进程的页表中分配一个物理页面，并将ELF文件中的内容读取并复制到新分配的页中。
+* `while`循环对程序段进行清零填充操作，确保页面中未被程序段内容覆盖的部分进行清零填充。
+
+(5) 使用`sysfile_close(fd);`关闭文件。
+
+(6) 调用`mm_map`函数为用户进程设置用户栈，并将参数放入用户栈中。用户栈的位置在用户虚空间的顶端，大小为 256 个页。至此, 进程内的内存管理 `vma `和 `mm` 数据结构已经建立完成。
+
+(7) 设置当前进程的`mm`、`cr3`:将`mm->pgdir `赋值到`cr3`寄存器中， 即更新了用户进程的虚拟内存空间。
+
+(8) 在用户栈中设置`uargc`和`uargv `：`uargc`和`uargv`被定义为指向整数和指向指针的指针，用于在用户栈中存储参数个数和参数列表的地址。
+
+(9) 为用户栈设置陷阱帧。
+
+(10) 如果上述步骤失败，则应清理环境。
+
+```c++
+static int
+load_icode(int fd, int argc, char **kargv) {
+    assert(argc >= 0 && argc <= EXEC_MAX_ARG_NUM);
+    
+    if (current->mm != NULL) {//检查当前进程的内存管理结构mm是否为空
+        panic("load_icode: current->mm must be empty.\n");
+    }
+
+    int ret = -E_NO_MEM;
+//-------------------------------创建一个新的内存管理结构mm----------------------------
+    struct mm_struct *mm;//创建一个新的内存管理结构mm
+    if ((mm = mm_create()) == NULL) {
+        goto bad_mm;
+    }
+    if (setup_pgdir(mm) != 0) {//创建新的页目录pgdir
+        goto bad_pgdir_cleanup_mm;
+    }
+
+    struct Page *page;
+
+    struct elfhdr __elf, *elf = &__elf;
+    if ((ret = load_icode_read(fd, elf, sizeof(struct elfhdr), 0)) != 0) {//读取ELF文件的头部信息
+        goto bad_elf_cleanup_pgdir;
+    }
+
+    if (elf->e_magic != ELF_MAGIC) {//验证文件格式是否正确
+        ret = -E_INVAL_ELF;
+        goto bad_elf_cleanup_pgdir;
+    }
+
+    struct proghdr __ph, *ph = &__ph;//proghdr结构体存储可执行文件的程序头表中的每个程序段的信息
+    uint32_t vm_flags, perm, phnum;
+    for (phnum = 0; phnum < elf->e_phnum; phnum ++) {//遍历ELF文件的程序头表
+        off_t phoff = elf->e_phoff + sizeof(struct proghdr) * phnum;//计算当前程序头的偏移量
+//----------读取可执行文件的程序头表，并对每个程序段进行必要的检查，以确保程序段的合法性和正确性---------------
+        if ((ret = load_icode_read(fd, ph, sizeof(struct proghdr), phoff)) != 0) {//读取可执行文件中的程序头表
+            goto bad_cleanup_mmap;
+        }
+        if (ph->p_type != ELF_PT_LOAD) {//检查程序段的类型是否为ELF_PT_LOAD
+        //如果不是，则跳过当前程序段的处理
+            continue ;
+        }
+        if (ph->p_filesz > ph->p_memsz) {//检查程序段的文件大小是否大于内存大小
+        //如果是，则说明文件大小超出了内存大小，这是一个错误情况
+            ret = -E_INVAL_ELF;
+            goto bad_cleanup_mmap;
+        }
+        if (ph->p_filesz == 0) {
+            // continue ;
+            // do nothing here since static variables may not occupy any space
+        }
+//------------------设置vm_flags和perm-----------------
+        vm_flags = 0, perm = PTE_U | PTE_V;//设置vm_flags和perm
+        //这两个变量用于表示页面的权限和标志，根据程序段的标志位（p_flags）来设置
+        if (ph->p_flags & ELF_PF_X) vm_flags |= VM_EXEC;
+        if (ph->p_flags & ELF_PF_W) vm_flags |= VM_WRITE;
+        if (ph->p_flags & ELF_PF_R) vm_flags |= VM_READ;
+        // modify the perm bits here for RISC-V
+        if (vm_flags & VM_READ) perm |= PTE_R;
+        if (vm_flags & VM_WRITE) perm |= (PTE_W | PTE_R);
+        if (vm_flags & VM_EXEC) perm |= PTE_X;
+
+//-----------调用mm_map函数，创建新的虚拟内存区域，并映射到对应的物理内存，将程序段映射到当前进程的地址空间中------
+        if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0) {
+            goto bad_cleanup_mmap;
+        }
+        off_t offset = ph->p_offset;
+        size_t off, size;
+        uintptr_t start = ph->p_va, end, la = ROUNDDOWN(start, PGSIZE);
+
+        ret = -E_NO_MEM;
+
+        end = ph->p_va + ph->p_filesz;
+        while (start < end) {
+            //在进程的页表中分配一个物理页面，并将其映射到虚拟地址la处
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+                ret = -E_NO_MEM;
+                goto bad_cleanup_mmap;
+            }
+            off = start - la, size = PGSIZE - off, la += PGSIZE;
+            if (end < la) {//如果结束地址小于la，说明当前页面不需要完全填充，需要调整size的大小。
+                size -= la - end;
+            }
+            /*load_icode_read函数将程序段的内容从文件中读取到内存中。
+            load_icode_read函数用于从文件fd中的偏移量offset处读取size字节的数据，然后将数据复制到page2kva(page) + off的内存地址处。这样就实现了将程序段的内容从文件中读取到内存中的操作*/
+            if ((ret = load_icode_read(fd, page2kva(page) + off, size, offset)) != 0) {
+                goto bad_cleanup_mmap;
+            }
+            start += size, offset += size;
+        }
+        end = ph->p_va + ph->p_memsz;//更新结束地址为程序段的虚拟地址加上内存大小
+
+        if (start < la) {//如果起始地址小于当前页面的起始地址，说明当前页面不需要完全填充，需要进行清零填充操作
+            /* ph->p_memsz == ph->p_filesz */
+            if (start == end) {//如果起始地址等于结束地址，说明当前页面不需要填充任何内容，直接跳过
+                continue ;
+            }
+            off = start + PGSIZE - la, size = PGSIZE - off;//计算偏移量off,需要填充的大小size
+            if (end < la) {//如果结束地址小于当前页面的结束地址，需要调整size的大小
+                size -= la - end;
+            }
+            memset(page2kva(page) + off, 0, size);//使用memset函数将页面中未被程序段内容覆盖的部分进行清零填充
+            start += size;
+            assert((end < la && start == end) || (end >= la && start == la));
+        }
+        while (start < end) {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+                ret = -E_NO_MEM;
+                goto bad_cleanup_mmap;
+            }
+            off = start - la, size = PGSIZE - off, la += PGSIZE;
+            if (end < la) {
+                size -= la - end;
+            }
+            memset(page2kva(page) + off, 0, size);
+            start += size;
+        }
+    }
+    sysfile_close(fd);//关闭fd
+
+//---------------------------调用mm_map函数设置用户栈，并将参数放入用户栈中---------------------------
+    vm_flags = VM_READ | VM_WRITE | VM_STACK;//设置用户栈的虚拟内存标志
+    if ((ret = mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0) {//将用户栈映射到虚拟地址USTACKTOP - USTACKSIZE处
+        goto bad_cleanup_mmap;
+    }
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-PGSIZE , PTE_USER) != NULL);//在用户栈的顶部分配一个物理页面，并将其映射到虚拟地址USTACKTOP - PGSIZE处，大小为 256 个页，即 1MB
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-2*PGSIZE , PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-3*PGSIZE , PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-4*PGSIZE , PTE_USER) != NULL);
+    
+    mm_count_inc(mm);//增加进程的引用计数
+    current->mm = mm;//将当前进程的mm指向新的进程的内存管理结构
+    current->cr3 = PADDR(mm->pgdir);//将当前进程的页表基址设置为新的进程的页表基址
+    lcr3(PADDR(mm->pgdir));//切换到新页表
+
+//-------------------------------在用户栈中设置uargc和uargv--------------------------------
+    //setup uargc, uargv
+    uint32_t argv_size=0, i;
+    for (i = 0; i < argc; i ++) {//计算参数总大小
+        argv_size += strnlen(kargv[i],EXEC_MAX_ARG_LEN + 1)+1;
+    }
+
+    //计算用户栈的栈顶位置，即参数所占空间的大小加上一个整型变量的大小
+    uintptr_t stacktop = USTACKTOP - (argv_size/sizeof(long)+1)*sizeof(long);
+    //定义指向参数的指针数组的指针
+    char** uargv=(char **)(stacktop  - argc * sizeof(char *));
+    
+    argv_size = 0;
+    for (i = 0; i < argc; i ++) {
+        //将每个参数复制到用户栈上，并将对应的指针存储到指针数组中
+        uargv[i] = strcpy((char *)(stacktop + argv_size ), kargv[i]);
+        argv_size +=  strnlen(kargv[i],EXEC_MAX_ARG_LEN + 1)+1;
+    }
+    
+    stacktop = (uintptr_t)uargv - sizeof(int);//计算用户栈的栈顶位置，即指向指针数组的指针所在位置减去一个整型变量的大小
+    *(int *)stacktop = argc;//将参数数量存储到用户栈的栈顶位置。
+//-------------------------------为用户栈设置陷阱帧------------------------------
+    struct trapframe *tf = current->tf;//获取当前进程的陷阱帧指针
+    // Keep sstatus
+    uintptr_t sstatus = tf->status;//保存陷阱帧中的状态寄存器
+    memset(tf, 0, sizeof(struct trapframe));//清空陷阱帧
+    
+    //设置用户栈指针 (sp)
+    tf->gpr.sp = USTACKTOP;
+    //设置程序入口地址 (epc)
+    tf->epc = elf->e_entry;
+    //将状态寄存器中的SPIE和SPP位清零，以切换到用户模式
+    tf->status = read_csr(sstatus) & ~(SSTATUS_SPIE | SSTATUS_SPP);
+
+    ret = 0;
+out:
+    return ret;
+//----------清理环境---------
+bad_cleanup_mmap:
+    exit_mmap(mm);
+bad_elf_cleanup_pgdir:
+    put_pgdir(mm);
+bad_pgdir_cleanup_mm:
+    mm_destroy(mm);
+bad_mm:
+    goto out;
+}
+```
+
+#### `alloc_proc`函数
+
+- `proc->rq = NULL;`：`rq`指向调度队列的指针，初始化为`NULL`。
+
+- `list_init(&(proc->run_link));`：`run_link` 是一个链表节点，用于将进程连接到调度队列中。使用`list_init`将其初始化为一个空链表。
+
+- `proc->time_slice = 0;`：进程的时间片初始化为 `0`
+
+- `proc->lab6_run_pool.left = proc->lab6_run_pool.right = proc->lab6_run_pool.parent = NULL;`：初始化`lab6`中的一个二叉堆，将左子节点、右子节点和父节点初始化为 `NULL`。
+
+- `proc->lab6_stride = 0;`：`Lab6`中使用的步长初始化为`0`。
+
+- `proc->lab6_priority = 0;`：Lab6中使用算法的优先级初始化为 `0`。
+
+- `proc->filesp = NULL;`：指向文件描述符表的指针初始化为 `NULL`，表示该进程还没有打开任何文件。
+
+```c++
+alloc_proc(void) {
+    // 为proc分配一个大小为struct proc_struct的内存块，并将其地址赋给proc
+    struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
+    // 如果proc不为NULL，说明内存分配成功
+    if (proc != NULL) {
+        // 初始化proc结构体的各个字段
+        proc->state = PROC_UNINIT;  // 进程状态初始化为PROC_UNINIT
+        proc->pid = -1;  // 进程ID初始化为-1
+        proc->runs = 0;  // 运行次数初始化为0
+        proc->kstack = 0;  // 内核栈指针初始化为0
+        proc->need_resched = 0;  // 是否需要调度初始化为0
+        proc->parent = NULL;  // 父进程指针初始化为NULL
+        proc->mm = NULL;  // 内存管理结构体指针初始化为NULL
+        // 对proc的context字段进行初始化，使用memset将其内存清零
+        memset(&(proc->context), 0, sizeof(struct context));
+        proc->tf = NULL;  // 中断帧指针初始化为NULL
+        proc->cr3 = boot_cr3;  // 页目录表物理地址初始化为boot_cr3
+        proc->flags = 0;  // 进程标志初始化为0
+        // 对proc的name字段进行初始化，使用memset将其内存清零
+        memset(proc->name, 0, PROC_NAME_LEN);
+        proc->wait_state = 0;  // 等待状态初始化为0
+        proc->cptr = proc->optr = proc->yptr = NULL;  // 子进程、兄弟进程和父进程指针初始化为NULL
+        proc->rq = NULL;  // 运行队列指针初始化为NULL
+        // 对proc的run_link字段进行初始化，使用list_init将其初始化为一个空链表
+        list_init(&(proc->run_link));
+        proc->time_slice = 0;  // 时间片初始化为0
+        // Lab6中使用的相关字段初始化为NULL
+        proc->lab6_run_pool.left = proc->lab6_run_pool.right = proc->lab6_run_pool.parent = NULL;
+        proc->lab6_stride = 0;  // Lab6中使用的步长初始化为0
+        proc->lab6_priority = 0;  // Lab6中使用的优先级初始化为0
+        proc->filesp = NULL;  // 文件描述符表指针初始化为NULL
+    }
+    // 返回proc指针，如果proc为NULL，表示内存分配失败
+    return proc;
+}
+```
+
+#### `proc_run`函数
+
+添加`flush_tlb`函数，用于刷新TLB。当操作系统进行进程切换时，页表也需要相应地切换，以确保正确的虚拟地址映射到正确的物理地址。`flush_tlb()`清空TLB中的旧映射，以便它可以重新加载新的页表映射，从而确保新的虚拟地址能够正确映射到新的物理地址。
+
+```C++
+void
+proc_run(struct proc_struct *proc) {
+    if (proc != current) { 
+        bool intr_flag;
+        struct proc_struct *prev = current, *next = proc;
+        local_intr_save(intr_flag);
+        {
+            current = proc;
+            lcr3(next->cr3);
+            flush_tlb();
+            switch_to(&(prev->context), &(next->context));
+        }
+        local_intr_restore(intr_flag);
+
+    }
+}
+```
+
+#### `do_fork`函数
+
+使用`copy_files()`复制当前进程的文件描述符表到新进程，如果复制失败，跳转到`bad_fork_cleanup_kstack`标签处，释放新进程的文件描述符表。
+
+```C++
+int
+do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
+  ...
+    if (copy_files(clone_flags, proc) != 0) { // 复制当前进程的文件描述符表到新进程，如果复制失败，跳转到bad_fork_cleanup_kstack标签处
+        goto bad_fork_cleanup_kstack;
+    }
+
+    if (copy_mm(clone_flags, proc) != 0) {
+        goto bad_fork_cleanup_fs;
+    }
+    copy_thread(proc, stack, tf);
+
+    bool intr_flag;
+    local_intr_save(intr_flag);
+    {
+        proc->pid = get_pid();
+        set_links(proc);
+        hash_proc(proc);
+    }
+    local_intr_restore(intr_flag);
+
+    wakeup_proc(proc);
+
+    ret = proc->pid;
+   
+fork_out:
+    return ret;
+
+bad_fork_cleanup_fs:  //如果复制内存映像失败，释放新进程的文件描述符表
+    put_files(proc);
+bad_fork_cleanup_kstack:
+    put_kstack(proc);
+bad_fork_cleanup_proc:
+    kfree(proc);
+    goto fork_out;
+}
+
+```
+
+#### make qemu:
+
+![makeqemu](./makeqemu.png)
+
+#### make grade:
+
+![makegrade](./makegrade.png)
+
 # 扩展练习 Challenge1：完成基于“UNIX的PIPE机制”的设计方案
 
 如果要在ucore里加入UNIX的管道（Pipe)机制，至少需要定义哪些数据结构和接口？（接口给出语义即可，不必具体实现。数据结构的设计应当给出一个(或多个）具体的C语言struct定义。在网络上查找相关的Linux资料和实现，请在实验报告中给出设计实现”UNIX的PIPE机制“的概要设方案，你的设计应当体现出对可能出现的同步互斥问题的处理。）
@@ -494,6 +838,47 @@ kern\init\init.c中的kern_init函数，增加了对fs_init函数的调用。fs_
       - sfs_dirent_read_nolock ()：从包含该文件项的磁盘块中读取该文件项
       - sfs_dirent_search_nolock()：搜索指定文件名的文件项，返回该文件项的索引和文件的磁盘块号。
 - 外设接口层：向上提供 device 访问接口屏蔽不同硬件细节。向下实现访问各种具体设备驱动的接口，比如 disk 设备接口/串口设备接口/键盘设备接口等。
+
+### 设备
+
+* `vfs_dev_t `数据结构：把`device`和`inode`联通起来.让文件系统通过一个链接`vfs_dev_t`结构的双向链表找到`device`对应的`inode`数据结构，一个`inode`节点的成员变量`in_type`的值是`0x1234`，则此`inode`的成员变量`in_info`将成为一个`device`结构。这样`inode`就和一个设备建立了联系，这个`inode`就是一个设备文件。
+* `vdev_list`双向链表：设备链表，通过访问`vdev_list`链表，可以找到`ucore`能够访问的所有设备文件。
+* `stdin`设备：时钟中断，每次时钟中断检查控制台是否输入新的字符，及时把它放在`stdin`缓冲区里。
+* `stdout`设备：只需要支持写操作，调用`cputchar() `把字符打印到控制台。
+* `disk0`设备：封装了一下`ramdisk`的接口，每次读取或者写入若干个`block`。
+
+### `OPEN`系统调用的执行过程
+
+* 通用文件访问接口层：进入内核态，执行` sysfile_open() `函数。把位于用户空间的字符串 `__path` 拷贝到内核空间中的字符串 `path `中，然后调用了 `file_open`，`file_open`调用了` vfs_open`, 使用了` VFS` 的接口, 进入到文件系统抽象层的处理流程完成进一步的打开文件操作中。
+* 文件系统抽象层
+  - 调用`file_open`函数，给这个即将打开的文件分配一个`file`数据结构的变量。
+  - 调用`vfs_open`函数来找到`path`指出的文件所对应的基于`inode`数据结构的`VFS`索引节点`node`。`vfs_open`函数需要完成两件事情：通过`vfs_lookup`找到`path`对应文件的`inode`；调用`vop_open`函数打开文件。
+  - `vfs_lookup `函数首先调用 `get_device` 函数，并进一步调用` vfs_get_bootfs` 函数（其实调用了）来找 到根目录“/”对应的 `inode`。通过调用` vop_lookup`函数来查找到根目录“/”下对应文件`sfs_filetest1`的索引节点，如果找到就返回此索引节点。
+* `SFS`文件系统层
+  * `sfs_lookup` 有三个参数：`node`，`path`，`node_store`。其中 `node` 是根目录“/”所对应的` inode` 节点；`path `是文件 `sfs_filetest1 `的绝对路径/sfs_filetest1，而 `node_store` 是经过查找获得的 `sfs_filetest1 `所对应的 `inode `节点。 `sfs_lookup` 函数以“/”为分割符，从左至右逐一分解 `path `获得各个子目录和最终文件对应的`inode `节点。
+  * `sfs_lookup_once `调用 `sfs_dirent_search_nolock` 函数来查找与路径名匹配的目录项，如果找到目录项，则根据目录项中记录的` inode `所处的数据块索引值找到路径名对应的 `SFS `磁盘 `inode`， 并读入` SFS` 磁盘` inode `对的内容，创建` SFS `内存 `inode`。
+
+### `Read`系统调用执行过程
+
+* 通用文件访问接口层
+  * 先进入通用文件访问接口层的处理流程，即进一步调用如下用户态函数：`read->sys_read->syscall`，从而引起 系统调用进入到内核态。
+  * 到达内核态后，通过中断处理例程，需要调用` sys_read `内核函数，并进一步调用 `sysfile_read` 内核函数，进入到文件系统抽象层处理流程完成进一步读文件的操作。
+* 文件系统抽象层
+  * 检查错误，即检查读取长度是否为`0`和文件是否可读。
+  *  分配`buffer`空间，即调用`kmalloc`函数分配`4096`字节的`buffer`空间。 
+  * 读文件过程
+    * 实际读文件：循环读取文件，每次读取 `buffer `大小。然后调用` file_read` 函数将文件内容读取到 buffer 中，alen 为实际大小。调用 `copy_to_user `函数将读到的内容拷贝到用户的内存空间中，调整各变量以进行下一次循环读取，直至指定长度读取完成。最后函数调用层层返回至用户程序，用户程序收到了读到的文件内容。
+    * `file_read`函数：首先调用 `fd2file `函数找到对应的 `file` 结构，并检查是否可读。调用` filemap_acquire` 函数使打开这个文件的计数加 `1`。调用 `vop_read `函数将文件内容读到` iob` 中。 调整文件指针偏移量 `pos` 的值，使其向后移动实际读到的字节数 `iobuf_used(iob)`。最后调用 `filemap_release` 函数使打开这个文件的计数减` 1`，若打开计数为 `0`，则释放 `file`。
+* `SFS`文件系统层
+  * `sfs_read` 函数：先找到` inode `对应 `sfs` 和 `sin`，然后调用 `sfs_io_nolock` 函数进行读取文件操作，最后调用 `iobuf_skip` 函数调整` iobuf `的指针。
+  * `sfs_io_nolock`函数：先计算一些辅助变量，并处理一些特殊情况（比如越界），然后有 `sfs_buf_op = sfs_rbuf`，`sfs_block_op = sfs_rblock`，设置读取的函数操作。接着进行实际操作，先处理起始的没有对齐到块的部分，再以块为单位循环处理中间的部分，最后处理末尾剩余的部分。每部分中都调用 `sfs_bmap_load_nolock `函数得到 `blkno` 对应的` inode `编号，并调用 `sfs_rbuf` 或` sfs_rblock `函数读取数据，调整相关变量。完成后如果 `offset + alen > din->fileinfo.size`，则调整文件大小为` offset + alen` 并设置 `dirty `变量。
+  * `sfs_bmap_load_nolock` 函数：调用 `sfs_bmap_get_nolock `来完成相应的操作。`sfs_rbuf `和` sfs_rblock `函数最终都调用 `sfs_rwblock_nolock `函数完成操作，而` sfs_rwblock_nolock` 函数调用` dop_io->disk0_io->disk0_read_blks_nolock- >ide_read_secs` 完成对磁盘的操作。
+
+
+
+
+
+
 
 
 
