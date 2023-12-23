@@ -110,19 +110,24 @@ disk0_ioctl(struct device *dev, int op, void *data) {
 
 static void
 disk0_device_init(struct device *dev) {
-    static_assert(DISK0_BLKSIZE % SECTSIZE == 0);
-    if (!ide_device_valid(DISK0_DEV_NO)) {
+    static_assert(DISK0_BLKSIZE % SECTSIZE == 0);//确保DISK0_BLKSIZE（块大小）是SECTSIZE（扇区大小）的倍数
+    if (!ide_device_valid(DISK0_DEV_NO)) {//检查磁盘设备是否可用
         panic("disk0 device isn't available.\n");
     }
-    dev->d_blocks = ide_device_size(DISK0_DEV_NO) / DISK0_BLK_NSECT;
-    dev->d_blocksize = DISK0_BLKSIZE;
+    dev->d_blocks = ide_device_size(DISK0_DEV_NO) / DISK0_BLK_NSECT;//占用块数=磁盘大小/每块的扇区大小
+    dev->d_blocksize = DISK0_BLKSIZE;//块大小
+    /*函数指针，对应磁盘设备的打开、关闭、读写和控制操作*/
     dev->d_open = disk0_open;
     dev->d_close = disk0_close;
     dev->d_io = disk0_io;
     dev->d_ioctl = disk0_ioctl;
+
+    //初始化一个信号量disk0_sem，用于对磁盘设备进行互斥访问
     sem_init(&(disk0_sem), 1);
 
-    static_assert(DISK0_BUFSIZE % DISK0_BLKSIZE == 0);
+    static_assert(DISK0_BUFSIZE % DISK0_BLKSIZE == 0);//确保DISK0_BUFSIZE所定义的缓冲区大小是DISK0_BLKSIZE的倍数
+
+    //从disk0_buffer开始，分配一个大小为DISK0_BUFSIZE的缓冲区（内存块）
     if ((disk0_buffer = kmalloc(DISK0_BUFSIZE)) == NULL) {
         panic("disk0 alloc buffer failed.\n");
     }

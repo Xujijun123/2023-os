@@ -344,24 +344,24 @@ sfs_bmap_free_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, uint32_t index) 
 }
 
 /*
- * sfs_bmap_load_nolock - according to the DIR's inode and the logical index of block in inode, find the NO. of disk block.
- * @sfs:      sfs file system
- * @sin:      sfs inode in memory
- * @index:    the logical index of disk block in inode
- * @ino_store:the NO. of disk block
+sfs_bmap_load_nolock - 根据目录的inode和inode中的逻辑块索引，找到磁盘块的编号。
+@sfs: SFS文件系统
+@sin: 内存中的SFS inode
+@index: inode中的逻辑块索引
+@ino_store: 磁盘块的编号
  */
 static int
 sfs_bmap_load_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, uint32_t index, uint32_t *ino_store) {
-    struct sfs_disk_inode *din = sin->din;
-    assert(index <= din->blocks);
+    struct sfs_disk_inode *din = sin->din;//获取目录的磁盘inode对象的指针din
+    assert(index <= din->blocks);//确保块索引小于目录的磁盘块数。
     int ret;
     uint32_t ino;
-    bool create = (index == din->blocks);
-    if ((ret = sfs_bmap_get_nolock(sfs, sin, index, create, &ino)) != 0) {
+    bool create = (index == din->blocks);//create表示是否需要创建新磁盘块
+    if ((ret = sfs_bmap_get_nolock(sfs, sin, index, create, &ino)) != 0) {//如果获取磁盘块号失败，则直接返回ret。
         return ret;
     }
-    assert(sfs_block_inuse(sfs, ino));
-    if (create) {
+    assert(sfs_block_inuse(sfs, ino));//确保磁盘块号ino在SFS文件系统中是被使用的。
+    if (create) {//如果需要创建新磁盘块，此时将目录的磁盘块数din->blocks加1。
         din->blocks ++;
     }
     if (ino_store != NULL) {
@@ -371,39 +371,39 @@ sfs_bmap_load_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, uint32_t index, 
 }
 
 /*
- * sfs_bmap_truncate_nolock - free the disk block at the end of file
+ * sfs_bmap_truncate_nolock - 释放文件末尾的磁盘块
  */
 static int
 sfs_bmap_truncate_nolock(struct sfs_fs *sfs, struct sfs_inode *sin) {
     struct sfs_disk_inode *din = sin->din;
     assert(din->blocks != 0);
     int ret;
-    if ((ret = sfs_bmap_free_nolock(sfs, sin, din->blocks - 1)) != 0) {
-        return ret;
+    if ((ret = sfs_bmap_free_nolock(sfs, sin, din->blocks - 1)) != 0) {//释放目录inode中的最后一个磁盘块（即逻辑索引为din->blocks-1的磁盘块）
+        return ret;//释放磁盘块失败
     }
     din->blocks --;
-    sin->dirty = 1;
+    sin->dirty = 1;//表示该文件inode已被修改。
     return 0;
 }
 
 /*
- * sfs_dirent_read_nolock - read the file entry from disk block which contains this entry
- * @sfs:      sfs file system
- * @sin:      sfs inode in memory
- * @slot:     the index of file entry
- * @entry:    file entry
+sfs_dirent_read_nolock - 从包含该文件项的磁盘块中读取该文件项
+@sfs: sfs 文件系统
+@sin: 内存中的 sfs inode
+@slot: 文件项的索引
+@entry: 文件项
  */
 static int
-sfs_dirent_read_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, int slot, struct sfs_disk_entry *entry) {
+sfs_dirent_read_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, int slot, struct sfs_disk_entry *entry) {//将目录的第 slot 个 entry 读取到指定的内存空间
     assert(sin->din->type == SFS_TYPE_DIR && (slot >= 0 && slot < sin->din->blocks));
     int ret;
     uint32_t ino;
-	// according to the DIR's inode and the slot of file entry, find the index of disk block which contains this file entry
+	// 根据目录 inode 和文件项索引，找到存储该文件项的磁盘块的索引
     if ((ret = sfs_bmap_load_nolock(sfs, sin, slot, &ino)) != 0) {
         return ret;
     }
     assert(sfs_block_inuse(sfs, ino));
-	// read the content of file entry in the disk block 
+	// 从该磁盘块读取文件项的内容
     if ((ret = sfs_rbuf(sfs, entry, sizeof(struct sfs_disk_entry), ino, 0)) != 0) {
         return ret;
     }
@@ -428,14 +428,15 @@ sfs_dirent_read_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, int slot, stru
     } while (0)
 
 /*
- * sfs_dirent_search_nolock - read every file entry in the DIR, compare file name with each entry->name
- *                            If equal, then return slot and NO. of disk of this file's inode
- * @sfs:        sfs file system
- * @sin:        sfs inode in memory
- * @name:       the filename
- * @ino_store:  NO. of disk of this file (with the filename)'s inode
- * @slot:       logical index of file entry (NOTICE: each file entry ocupied one  disk block)
- * @empty_slot: the empty logical index of file entry.
+ * 在 sfs_inode 中搜索指定文件名的文件项的函数。它会读取目录中的每个文件项，并与给定的文件名进行比较。
+    如果找到匹配的文件名，它会返回该文件项的索引和文件的磁盘块号。
+ * 函数的参数解释如下：
+    @sfs：sfs 文件系统的指针
+    @sin：内存中的 sfs inode
+    @name：要搜索的文件名
+    @ino_store：存储找到的文件的磁盘块号（文件的 inode）
+    @slot：文件项的逻辑索引（每个文件项占用一个磁盘块）
+    @empty_slot：空文件项的逻辑索引
  */
 static int
 sfs_dirent_search_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, const char *name, uint32_t *ino_store, int *slot, int *empty_slot) {
@@ -1004,10 +1005,11 @@ sfs_lookup(struct inode *node, char *path, struct inode **node_store) {
 }
 
 // The sfs specific DIR operations correspond to the abstract operations on a inode.
+//inode的目录操作函数
 static const struct inode_ops sfs_node_dirops = {
     .vop_magic                      = VOP_MAGIC,
     .vop_open                       = sfs_opendir,
-    .vop_close                      = sfs_close,
+    .vop_close                      = sfs_close,//由于目录的内容数据与文件的内容数据不同，所以读出目录的内容数据的函数是 sfs_getdirentry()，其主要工作是获取目录下的文件 inode 信息。
     .vop_fstat                      = sfs_fstat,
     .vop_fsync                      = sfs_fsync,
     .vop_namefile                   = sfs_namefile,
@@ -1019,9 +1021,9 @@ static const struct inode_ops sfs_node_dirops = {
 /// The sfs specific FILE operations correspond to the abstract operations on a inode.
 static const struct inode_ops sfs_node_fileops = {
     .vop_magic                      = VOP_MAGIC,
-    .vop_open                       = sfs_openfile,
-    .vop_close                      = sfs_close,
-    .vop_read                       = sfs_read,
+    .vop_open                       = sfs_openfile,//不用做什么事
+    .vop_close                      = sfs_close,//把对文件的修改内容写回到硬盘上，这样确保硬盘上的文件内容数据是最新的
+    .vop_read                       = sfs_read,//sfs_read 和 sfs_write 函数都调用了一个函数 sfs_io，并最终通过访问硬盘驱动来完成对文件内容数据的读写。
     .vop_write                      = sfs_write,
     .vop_fstat                      = sfs_fstat,
     .vop_fsync                      = sfs_fsync,

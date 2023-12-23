@@ -38,8 +38,8 @@ unlock_vdev_list(void) {
 
 void
 vfs_devlist_init(void) {
-    list_init(&vdev_list);
-    sem_init(&vdev_list_sem, 1);
+    list_init(&vdev_list);//vdev_list初始化为空
+    sem_init(&vdev_list_sem, 1);//vdev_list_sem信号量为1，等待链表为空
 }
 
 // vfs_cleanup - finally clean (or sync) fs
@@ -215,32 +215,32 @@ find_mount(const char *devname, vfs_dev_t **vdev_store) {
 }
 
 /*
- * vfs_mount - Mount a filesystem. Once we've found the device, call MOUNTFUNC to
- *             set up the filesystem and hand back a struct fs.
- *
- * The DATA argument is passed through unchanged to MOUNTFUNC.
+vfs_mount - 挂载文件系统。一旦找到设备，调用MOUNTFUNC来设置文件系统并返回一个struct fs结构体。
+
+DATA参数将原样传递给MOUNTFUNC函数。
  */
+ //vfs_mount函数解释
 int
 vfs_mount(const char *devname, int (*mountfunc)(struct device *dev, struct fs **fs_store)) {
     int ret;
-    lock_vdev_list();
+    lock_vdev_list();//锁定虚拟设备列表，以避免并发操作的影响。
     vfs_dev_t *vdev;
-    if ((ret = find_mount(devname, &vdev)) != 0) {
+    if ((ret = find_mount(devname, &vdev)) != 0) {//查找指定名称的虚拟设备，并将其对应的vfs_dev_t对象指针保存在指针变量vdev中，找不到返回错误码
         goto out;
     }
-    if (vdev->fs != NULL) {
+    if (vdev->fs != NULL) {//检查该虚拟设备是否已经挂载了文件系统，如果已经挂载，则返回错误码。
         ret = -E_BUSY;
         goto out;
     }
-    assert(vdev->devname != NULL && vdev->mountable);
+    assert(vdev->devname != NULL && vdev->mountable);//确保设备名称不为空且可以挂载
 
-    struct device *dev = vop_info(vdev->devnode, device);
-    if ((ret = mountfunc(dev, &(vdev->fs))) == 0) {
+    struct device *dev = vop_info(vdev->devnode, device);//获取虚拟设备对应的设备对象的指针
+    if ((ret = mountfunc(dev, &(vdev->fs))) == 0) {//mountfunc，参数为设备对象指针和文件系统对象指针的地址，执行挂载操作
         assert(vdev->fs != NULL);
-        cprintf("vfs: mount %s.\n", vdev->devname);
+        cprintf("vfs: mount %s.\n", vdev->devname);//成功挂载
     }
 
-out:
+out://错误码
     unlock_vdev_list();
     return ret;
 }

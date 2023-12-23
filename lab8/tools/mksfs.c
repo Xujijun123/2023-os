@@ -131,14 +131,15 @@ struct cache_block {
 };
 
 struct cache_inode {
+    //inode的结构体定义
     struct inode {
-        uint32_t size;
-        uint16_t type;
-        uint16_t nlinks;
-        uint32_t blocks;
-        uint32_t direct[SFS_NDIRECT];
-        uint32_t indirect;
-        uint32_t db_indirect;
+        uint32_t size;//文件的大小（以字节为单位）。
+        uint16_t type;//文件或目录的类型
+        uint16_t nlinks;//链接到该文件或目录的硬链接数量。
+        uint32_t blocks;//文件或目录所占用的磁盘块数量。
+        uint32_t direct[SFS_NDIRECT];//包含SFS_NDIRECT个数字的数组，表示直接指向文件或目录数据块的索引。SFS_NDIRECT为要查找的目标块的位置数
+        uint32_t indirect;//一个间接块（indirect block）的索引，用于寻找其他数据块的索引
+        uint32_t db_indirect;//一个双重间接块（double indirect block）的索引，用于寻找其他间接块的索引。
     } inode;
     ino_t real;
     uint32_t ino;

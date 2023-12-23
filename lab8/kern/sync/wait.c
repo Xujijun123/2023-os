@@ -13,7 +13,7 @@ wait_init(wait_t *wait, struct proc_struct *proc) {
 
 void
 wait_queue_init(wait_queue_t *queue) {
-    list_init(&(queue->wait_head));
+    list_init(&(queue->wait_head));//wait_head初始化为一个空链表
 }
 
 void

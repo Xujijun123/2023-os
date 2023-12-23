@@ -9,8 +9,8 @@
 
 void
 sem_init(semaphore_t *sem, int value) {
-    sem->value = value;
-    wait_queue_init(&(sem->wait_queue));
+    sem->value = value;//初始化信号量
+    wait_queue_init(&(sem->wait_queue));//初始化空等待链表
 }
 
 static __noinline void __up(semaphore_t *sem, uint32_t wait_state) {

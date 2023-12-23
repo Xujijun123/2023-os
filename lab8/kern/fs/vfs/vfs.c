@@ -25,7 +25,7 @@ __alloc_fs(int type) {
 // vfs_init -  vfs initialize
 void
 vfs_init(void) {
-    sem_init(&bootfs_sem, 1);
+    sem_init(&bootfs_sem, 1);//初始化信号量value为1，创建空的等待链表
     vfs_devlist_init();
 }
 

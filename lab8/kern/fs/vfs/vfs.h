@@ -32,19 +32,21 @@ struct iobuf;   // kernel or userspace I/O buffer (iobuf.h)
  * filesystem should have been discarded/released.
  *
  */
+ //fs结构体
+ /*在一个操作系统中，不同的文件系统实现需要提供不同的接口函数和数据结构来满足操作系统对文件系统所需的功能和操作，
+ struct fs就是为了解决这个问题而定义的通用结构体，以满足操作系统对文件系统模块的交互和管理需求。*/
 struct fs {
-    union {
-        struct sfs_fs __sfs_info;                   
-    } fs_info;                                     // filesystem-specific data 
-    enum {
-        fs_type_sfs_info,
-    } fs_type;                                     // filesystem type 
-    int (*fs_sync)(struct fs *fs);                 // Flush all dirty buffers to disk 
-    struct inode *(*fs_get_root)(struct fs *fs);   // Return root inode of filesystem.
-    int (*fs_unmount)(struct fs *fs);              // Attempt unmount of filesystem.
-    void (*fs_cleanup)(struct fs *fs);             // Cleanup of filesystem.???
+union {
+struct sfs_fs __sfs_info; // 文件系统特定数据
+} fs_info; // 文件系统数据
+enum {
+fs_type_sfs_info,
+} fs_type; // 文件系统类型
+int (*fs_sync)(struct fs *fs); // 将所有脏缓冲区刷新到磁盘上
+struct inode *(*fs_get_root)(struct fs *fs); // 返回文件系统根节点的inode结构体指针
+int (*fs_unmount)(struct fs *fs); // 尝试卸载文件系统
+void (*fs_cleanup)(struct fs *fs); // 文件系统清理，释放资源等操作的函数指针
 };
-
 #define __fs_type(type)                                             fs_type_##type##_info
 
 #define check_fs_type(fs, type)                                     ((fs)->fs_type == __fs_type(type))

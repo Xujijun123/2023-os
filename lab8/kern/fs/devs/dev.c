@@ -151,7 +151,7 @@ static const struct inode_ops dev_node_ops = {
 void
 dev_init(void) {
    // init_device(null);
-    init_device(stdin);
+    init_device(stdin);//见上面，合成一些需要的函数名dev_init_##x。
     init_device(stdout);
     init_device(disk0);
 }

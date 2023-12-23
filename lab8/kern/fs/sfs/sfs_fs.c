@@ -139,23 +139,27 @@ sfs_init_freemap(struct device *dev, struct bitmap *freemap, uint32_t blkno, uin
     return 0;
 }
 
+//sfs_do_mount函数定义
 /*
- * sfs_do_mount - mount sfs file system.
- *
- * @dev:        the block device contains sfs file system
- * @fs_store:   the fs struct in memroy
- */
+sfs_do_mount - 挂载 SFS 文件系统。
+@dev：包含 SFS 文件系统的块设备
+@fs_store：内存中的 fs 结构体
+*/
+/*函数的功能是将SFS（Simple File System）文件系统挂载到指定的设备上。
+具体实现过程包括读取设备中的超级块、空闲块位图等SFS文件系统的元数据信息，以及分配和初始化散列链表等数据结构。该函数会根据设备的块大小检查SFS块大小是否相同，
+并将SFS文件系统的元数据信息存储在所指向的sfs_fs结构体中，以便后续使用。如果函数执行成功，会返回0；否则，会返回-1。*/
 static int
 sfs_do_mount(struct device *dev, struct fs **fs_store) {
     static_assert(SFS_BLKSIZE >= sizeof(struct sfs_super));
     static_assert(SFS_BLKSIZE >= sizeof(struct sfs_disk_inode));
     static_assert(SFS_BLKSIZE >= sizeof(struct sfs_disk_entry));
 
-    if (dev->d_blocksize != SFS_BLKSIZE) {
+    if (dev->d_blocksize != SFS_BLKSIZE) {//检查设备的块大小是否与SFS块大小相同
         return -E_NA_DEV;
     }
 
     /* allocate fs structure */
+    //分配并初始化一个fs结构体，并将所指向的sfs_fs结构体的dev字段设置为传入的设备。
     struct fs *fs;
     if ((fs = alloc_fs(sfs)) == NULL) {
         return -E_NO_MEM;
@@ -165,29 +169,31 @@ sfs_do_mount(struct device *dev, struct fs **fs_store) {
 
     int ret = -E_NO_MEM;
 
+    //分配SFS块大小的内存作为sfs_buffer，并将前面刚初始化的sfs的sfs_buffer字段设置为该内存地址。
     void *sfs_buffer;
     if ((sfs->sfs_buffer = sfs_buffer = kmalloc(SFS_BLKSIZE)) == NULL) {
         goto failed_cleanup_fs;
     }
 
     /* load and check superblock */
+    //将超级块读取到sfs_buffer中
     if ((ret = sfs_init_read(dev, SFS_BLKN_SUPER, sfs_buffer)) != 0) {
         goto failed_cleanup_sfs_buffer;
     }
-
     ret = -E_INVAL;
-
+    //检查超级块的魔数是否与SFS_MAGIC相同。即磁盘镜像是否是合法
     struct sfs_super *super = sfs_buffer;
     if (super->magic != SFS_MAGIC) {
         cprintf("sfs: wrong magic in superblock. (%08x should be %08x).\n",
                 super->magic, SFS_MAGIC);
         goto failed_cleanup_sfs_buffer;
     }
-    if (super->blocks > dev->d_blocks) {
+    if (super->blocks > dev->d_blocks) {//超级块中的块数是否小于或等于设备的块数
         cprintf("sfs: fs has %u blocks, device has %u blocks.\n",
                 super->blocks, dev->d_blocks);
         goto failed_cleanup_sfs_buffer;
     }
+    //将超级块中的文件系统信息字符串末尾设置为’\0’，并将所指向的sfs_fs结构体的super字段设置为超级块的内容。
     super->info[SFS_MAX_INFO_LEN] = '\0';
     sfs->super = *super;
 
@@ -196,8 +202,10 @@ sfs_do_mount(struct device *dev, struct fs **fs_store) {
     uint32_t i;
 
     /* alloc and initialize hash list */
+    //分配和初始化散列链表
     list_entry_t *hash_list;
     if ((sfs->hash_list = hash_list = kmalloc(sizeof(list_entry_t) * SFS_HLIST_SIZE)) == NULL) {
+        //分配用于存储散列链表的内存，并将所指向的sfs_fs结构体的hash_list字段设置为该内存地址。然后，将散列链表的各个槽初始化为空。
         goto failed_cleanup_sfs_buffer;
     }
     for (i = 0; i < SFS_HLIST_SIZE; i ++) {
@@ -205,18 +213,19 @@ sfs_do_mount(struct device *dev, struct fs **fs_store) {
     }
 
     /* load and check freemap */
+    //读取并检查空闲块位图
     struct bitmap *freemap;
     uint32_t freemap_size_nbits = sfs_freemap_bits(super);
-    if ((sfs->freemap = freemap = bitmap_create(freemap_size_nbits)) == NULL) {
+    if ((sfs->freemap = freemap = bitmap_create(freemap_size_nbits)) == NULL) {//计算出空闲块位图所需的位数，为它分配内存；并将所指向的sfs_fs结构体的freemap字段设置为该位图
         goto failed_cleanup_hash_list;
     }
     uint32_t freemap_size_nblks = sfs_freemap_blocks(super);
-    if ((ret = sfs_init_freemap(dev, freemap, SFS_BLKN_FREEMAP, freemap_size_nblks, sfs_buffer)) != 0) {
+    if ((ret = sfs_init_freemap(dev, freemap, SFS_BLKN_FREEMAP, freemap_size_nblks, sfs_buffer)) != 0) {//读取空闲块位图的内容，并检查返回值是否为0
         goto failed_cleanup_freemap;
     }
 
     uint32_t blocks = sfs->super.blocks, unused_blocks = 0;
-    for (i = 0; i < freemap_size_nbits; i ++) {
+    for (i = 0; i < freemap_size_nbits; i ++) {//计算文件系统的总块数和未使用块数，并进行断言检查未使用块数是否与超级块中的值相等。
         if (bitmap_test(freemap, i)) {
             unused_blocks ++;
         }
