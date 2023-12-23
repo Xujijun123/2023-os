@@ -432,7 +432,7 @@ ssize_t readlink(const char* path, char* buf, size_t bufsize) {
 
 kern\init\init.c中的kern_init函数，增加了对fs_init函数的调用。fs_init函数就是文件系统初始化的总控函数。它的调用函数如下图所示。
 
-<img src="C:\Users\MI\AppData\Roaming\Typora\typora-user-images\image-20231222212417357.png" alt="image-20231222212417357" style="zoom: 33%;" />
+<img src="./1.png" alt="image-20231222212417357" style="zoom: 33%;" />
 
 下面对上面这些函数做一些解释
 
@@ -462,7 +462,7 @@ kern\init\init.c中的kern_init函数，增加了对fs_init函数的调用。fs_
 
 ### ucore的文件系统构架组成
 
-<img src="C:\Users\MI\AppData\Roaming\Typora\typora-user-images\image-20231222234956406.png" alt="image-20231222234956406" style="zoom:33%;" />
+<img src="./2.png" alt="image-20231222234956406" style="zoom:33%;" />
 
 - 通用文件系统访问接口层：这一层访问接口让应用程序能够通过一个简单的接口获得 ucore 内核的文件系统服务。
 - 文件系统抽象层：
@@ -483,7 +483,7 @@ kern\init\init.c中的kern_init函数，增加了对fs_init函数的调用。fs_
 - Simple FS 文件系统层：一个基于索引方式的简单文件系统实例。向上通过各种具体函数实现以对应文件系统抽象层提出的抽象函数。向下访问外设接口
   - 这里该文件系统以block （4K，与内存 page 大小相等）为基本单位。
   - sfs的布局如下：
-  - <img src="C:\Users\MI\AppData\Roaming\Typora\typora-user-images\image-20231223004524368.png" alt="image-20231223004524368" style="zoom: 33%;" />
+  - <./3.png" alt="image-20231223004524368" style="zoom: 33%;" />
     - 第0个块为超级块，用结构体sfs_super表示，保存文件系统的所有关键参数，当计算机被启动或文件系统被首次接触时，超级块的内容就会被装入内存。（魔数、已使用和未使用的块数等）这里的魔数其实是特定文件格式的内存特征，以判断磁盘镜像是否是合法的 SFS img。
     - 第1个块为根目录索引节点
     - 第2个块为空闲块映射，它的每一个比特位表示对应的块是否空闲。
